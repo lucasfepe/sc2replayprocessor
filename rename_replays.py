@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 import config
 import tempfile
+import subprocess
 
 class SC2ReplayRenamer:
     def __init__(self, player_name, replay_dir):
@@ -33,12 +34,52 @@ class SC2ReplayRenamer:
         return backup_path
         
     def remove_chat_from_replay(self, replay_path):
-        """Remove chat messages from replay file"""
+        """Remove chat messages from replay file using MPQEditor"""
         try:
-            # For now, we'll just mark that we processed it
-            # Full implementation would require MPQ manipulation
-            self.stats['chat_removed'] += 1
-            return True
+            # Check if MPQEditor path is configured
+            if not hasattr(config, 'MPQEDITOR_PATH') or not config.MPQEDITOR_PATH:
+                print(f"⚠️  Warning: MPQEditor path not configured in config.py")
+                return False
+                
+            mpqeditor_path = Path(config.MPQEDITOR_PATH)
+            if not mpqeditor_path.exists():
+                print(f"⚠️  Warning: MPQEditor not found at {mpqeditor_path}")
+                return False
+            
+            # Create temporary script file for MPQEditor
+            script_content = [
+                f'o "{replay_path}"',  # Open the replay file
+                f'd "{replay_path}" replay.message.events',  # Delete chat events
+                f'a "{replay_path}" replay.message.events replay.message.events',  # Add empty placeholder
+                f'c "{replay_path}"'  # Close/compact the file
+            ]
+            
+            # Write script to temporary file
+            script_file = self.replay_dir / "script_temp.txt"
+            with open(script_file, 'w') as f:
+                f.write('\n'.join(script_content))
+            
+            # Execute MPQEditor with the script
+            try:
+                result = subprocess.run(
+                    [str(mpqeditor_path), '/console', str(script_file)],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                
+                # Check if successful
+                if result.returncode == 0:
+                    self.stats['chat_removed'] += 1
+                    return True
+                else:
+                    print(f"⚠️  MPQEditor returned error code {result.returncode}")
+                    return False
+                    
+            finally:
+                # Clean up temporary script file
+                if script_file.exists():
+                    script_file.unlink()
             
         except Exception as e:
             print(f"⚠️  Warning: Could not remove chat from {replay_path.name}: {e}")
@@ -161,7 +202,11 @@ class SC2ReplayRenamer:
         # Remove chat if enabled
         if config.REMOVE_CHAT:
             print(f"   🗨️  Removing chat...")
-            self.remove_chat_from_replay(replay_path)
+            chat_removed = self.remove_chat_from_replay(replay_path)
+            if chat_removed:
+                print(f"   ✅ Chat removed successfully")
+            else:
+                print(f"   ⚠️  Failed to remove chat")
         
         # If we're not renaming (chat removal only mode), create marker and return
         if not rename_file:
@@ -315,6 +360,21 @@ def main():
         if config.PAUSE_WHEN_DONE:
             input("\nPress Enter to exit...")
         return
+    
+    # Check MPQEditor configuration if chat removal is enabled
+    if config.REMOVE_CHAT:
+        if not hasattr(config, 'MPQEDITOR_PATH'):
+            print("❌ ERROR: MPQEDITOR_PATH not configured in config.py!")
+            print("Please add: MPQEDITOR_PATH = r'D:\\MPQEditor\\MPQEditor.exe'")
+            if config.PAUSE_WHEN_DONE:
+                input("\nPress Enter to exit...")
+            return
+        elif not os.path.exists(config.MPQEDITOR_PATH):
+            print(f"❌ ERROR: MPQEditor not found at: {config.MPQEDITOR_PATH}")
+            print("Please check the path in config.py")
+            if config.PAUSE_WHEN_DONE:
+                input("\nPress Enter to exit...")
+            return
         
     # Create processor instance
     processor = SC2ReplayRenamer(config.SC2_USERNAME, config.REPLAYS_PATH)

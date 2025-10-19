@@ -20,3 +20,6 @@ INCLUDE_MAX_MINERALS = True # Add max unspent minerals (e.g., "2500minerals")
 
 # UI settings
 PAUSE_WHEN_DONE = True  # Keep window open after processing (useful for shortcuts)
+
+# Path to MPQEditor 
+MPQEDITOR_PATH = r'C:\Path\To\Your\MPQEditor.exe' 
